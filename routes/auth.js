@@ -13,8 +13,12 @@ const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const SOCKET_SECRET = process.env.SOCKET_SECRET || JWT_SECRET;
 const RESET_SECRET = process.env.RESET_SECRET;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+
+// Optional cookie domain for production (e.g. ".vercel.app" or ".yourdomain.com")
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || null;
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const SENDER_EMAIL = process.env.RESEND_SENDER_EMAIL;
@@ -51,7 +55,7 @@ const getToken = (req) => {
 };
 
 /* ---------------------------------------------------------
-   REGISTER  (WITH PASSWORD VALIDATION)
+   REGISTER
 ----------------------------------------------------------*/
 router.post("/register", async (req, res) => {
   try {
@@ -91,7 +95,7 @@ router.post("/register", async (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   LOGIN — FIXED COOKIE CONFIG
+   LOGIN — fixed cookie config + socket token
 ----------------------------------------------------------*/
 router.post("/login", async (req, res) => {
   try {
@@ -105,29 +109,52 @@ router.post("/login", async (req, res) => {
     if (!match)
       return res.status(401).json({ success: false, message: "Invalid email or password" });
 
+    // Create auth token
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+
+    // Create socket token (separate secret is recommended)
+    const socketToken = jwt.sign({ id: user._id }, SOCKET_SECRET, { expiresIn: "7d" });
 
     const isProd = process.env.NODE_ENV === "production";
 
-    res.cookie("token", token, {
+    // Common cookie options
+    const commonOpts = {
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
+    };
+
+    // Build options with environment-specific values
+    const authCookieOpts = {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: "/",
-    });
-
-    res.cookie("socketToken", token, {
-      httpOnly: false,
+      ...commonOpts,
+    };
+    const socketCookieOpts = {
+      httpOnly: false, // client needs to read this if you rely on js-cookie
       secure: isProd,
       sameSite: isProd ? "None" : "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: "/",
-    });
+      ...commonOpts,
+    };
 
+    if (COOKIE_DOMAIN && isProd) {
+      authCookieOpts.domain = COOKIE_DOMAIN;
+      socketCookieOpts.domain = COOKIE_DOMAIN;
+    }
+
+    // Set cookies
+    res.cookie("token", token, authCookieOpts);
+    // socketToken cookie is intentionally not httpOnly so frontend JS can access it if needed.
+    res.cookie("socketToken", socketToken, socketCookieOpts);
+
+    // Respond with user object AND socketToken (frontend can read from body or cookie)
+    const formatted = formatUser(user);
     return res.json({
       success: true,
-      user: formatUser(user),
+      user: {
+        ...formatted,
+        socketToken, // optional, convenient for client-side socket connect (but duplicate of cookie)
+      },
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
@@ -136,7 +163,7 @@ router.post("/login", async (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   /me — FIXED (NO MORE RANDOM 401)
+   /me
 ----------------------------------------------------------*/
 router.get("/me", async (req, res) => {
   try {
@@ -150,6 +177,7 @@ router.get("/me", async (req, res) => {
 
     return res.json({ success: true, user: formatUser(user) });
   } catch (err) {
+    console.error("ME ERROR:", err);
     return res.status(401).json({ success: false });
   }
 });
@@ -240,29 +268,40 @@ router.post("/reset-password", async (req, res) => {
 
     return res.json({ success: true, message: "Password reset successful" });
   } catch (err) {
+    console.error("RESET ERROR:", err);
     return res.status(400).json({ success: false, message: "Invalid or expired token" });
   }
 });
 
 /* ---------------------------------------------------------
-   LOGOUT — FIXED
+   LOGOUT
 ----------------------------------------------------------*/
 router.post("/logout", (req, res) => {
   const isProd = process.env.NODE_ENV === "production";
 
-  res.clearCookie("token", {
+  const common = { path: "/" };
+
+  const authCookieOpts = {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "None" : "Lax",
-    path: "/",
-  });
+    ...common,
+  };
 
-  res.clearCookie("socketToken", {
+  const socketCookieOpts = {
     httpOnly: false,
     secure: isProd,
     sameSite: isProd ? "None" : "Lax",
-    path: "/",
-  });
+    ...common,
+  };
+
+  if (COOKIE_DOMAIN && isProd) {
+    authCookieOpts.domain = COOKIE_DOMAIN;
+    socketCookieOpts.domain = COOKIE_DOMAIN;
+  }
+
+  res.clearCookie("token", authCookieOpts);
+  res.clearCookie("socketToken", socketCookieOpts);
 
   return res.json({ success: true });
 });
