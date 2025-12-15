@@ -214,7 +214,13 @@ io.use(async (socket, next) => {
       const cookieHeader = socket.handshake.headers?.cookie;
       if (cookieHeader) {
         const parsed = cookie.parse(cookieHeader || "");
-        token = parsed.socketToken || parsed.token || null;
+       token =
+  socket.handshake.auth?.token ||
+  parsed.socketToken ||
+  parsed.token ||
+  parsed.accessToken ||
+  null;
+
       }
     }
 
@@ -257,27 +263,39 @@ io.on("connection", (socket) => {
   io.emit("userOnline", userId);
   console.log(`⚡ ${user.name} connected (${socket.id})`);
 
-  /* sendMessage handler (example) */
-  socket.on("sendMessage", async ({ to, message, tempId }) => {
-    try {
-      const newMsg = await Message.create({
-        sender: userId,
-        receiver: to,
-        message,
-      });
+socket.on("sendMessage", async ({ to, message, tempId }) => {
+  try {
+    const newMsg = await Message.create({
+      sender: userId,
+      receiver: to,
+      message,
+      read: false, // 🔢 unread support
+    });
 
-      const saved = await Message.findById(newMsg._id)
-        .populate("sender", "name _id")
-        .populate("receiver", "name _id")
-        .lean();
+    const saved = await Message.findById(newMsg._id)
+      .populate("sender", "name _id")
+      .populate("receiver", "name _id")
+      .lean();
 
-      // send to receiver and sender
-      io.to(to).emit("receiveMessage", saved);
-      io.to(userId).emit("receiveMessage", { ...saved, tempId });
-    } catch (err) {
-      console.error("sendMessage error:", err);
-    }
-  });
+    const payload = { ...saved, tempId };
+
+    // 💬 chat message (both sides)
+    io.to(to).emit("receiveMessage", payload);
+    io.to(userId).emit("receiveMessage", payload);
+
+    // 🔔 popup notification (receiver only)
+    io.to(to).emit("newMessageNotification", {
+      from: userId,
+      fromName: saved.sender.name,
+      message: saved.message,
+      messageId: saved._id,
+      createdAt: saved.createdAt,
+    });
+  } catch (err) {
+    console.error("sendMessage error:", err);
+  }
+});
+
 
   socket.on("disconnect", () => {
     onlineUsers.delete(userId);

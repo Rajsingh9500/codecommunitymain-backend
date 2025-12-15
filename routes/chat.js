@@ -147,5 +147,28 @@ router.get("/messages/:receiverId", authMiddleware, async (req, res) => {
 });
 
 
+/**
+ * ✅ Mark messages as read when chat is opened
+ */
+router.put("/mark-read/:partnerId", authMiddleware, async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const partnerId = req.params.partnerId;
+
+    await Message.updateMany(
+      {
+        sender: partnerId,
+        receiver: currentUserId,
+        read: false,
+      },
+      { $set: { read: true } }
+    );
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("❌ Mark read error:", err);
+    res.status(500).json({ error: "Failed to mark messages as read" });
+  }
+});
 
 export default router;
