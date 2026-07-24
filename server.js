@@ -5,8 +5,7 @@ import https from "https";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
-dotenv.config();
+import "dotenv/config";
 
 import mongoose from "mongoose";
 import cors from "cors";
@@ -216,12 +215,12 @@ io.use(async (socket, next) => {
       const cookieHeader = socket.handshake.headers?.cookie;
       if (cookieHeader) {
         const parsed = cookie.parse(cookieHeader || "");
-       token =
-  socket.handshake.auth?.token ||
-  parsed.socketToken ||
-  parsed.token ||
-  parsed.accessToken ||
-  null;
+        token =
+          socket.handshake.auth?.token ||
+          parsed.socketToken ||
+          parsed.token ||
+          parsed.accessToken ||
+          null;
 
       }
     }
@@ -265,38 +264,38 @@ io.on("connection", (socket) => {
   io.emit("userOnline", userId);
   console.log(`⚡ ${user.name} connected (${socket.id})`);
 
-socket.on("sendMessage", async ({ to, message, tempId }) => {
-  try {
-    const newMsg = await Message.create({
-      sender: userId,
-      receiver: to,
-      message,
-      read: false, // 🔢 unread support
-    });
+  socket.on("sendMessage", async ({ to, message, tempId }) => {
+    try {
+      const newMsg = await Message.create({
+        sender: userId,
+        receiver: to,
+        message,
+        read: false, // 🔢 unread support
+      });
 
-    const saved = await Message.findById(newMsg._id)
-      .populate("sender", "name _id")
-      .populate("receiver", "name _id")
-      .lean();
+      const saved = await Message.findById(newMsg._id)
+        .populate("sender", "name _id")
+        .populate("receiver", "name _id")
+        .lean();
 
-    const payload = { ...saved, tempId };
+      const payload = { ...saved, tempId };
 
-    // 💬 chat message (both sides)
-    io.to(to).emit("receiveMessage", payload);
-    io.to(userId).emit("receiveMessage", payload);
+      // 💬 chat message (both sides)
+      io.to(to).emit("receiveMessage", payload);
+      io.to(userId).emit("receiveMessage", payload);
 
-    // 🔔 popup notification (receiver only)
-    io.to(to).emit("newMessageNotification", {
-      from: userId,
-      fromName: saved.sender.name,
-      message: saved.message,
-      messageId: saved._id,
-      createdAt: saved.createdAt,
-    });
-  } catch (err) {
-    console.error("sendMessage error:", err);
-  }
-});
+      // 🔔 popup notification (receiver only)
+      io.to(to).emit("newMessageNotification", {
+        from: userId,
+        fromName: saved.sender.name,
+        message: saved.message,
+        messageId: saved._id,
+        createdAt: saved.createdAt,
+      });
+    } catch (err) {
+      console.error("sendMessage error:", err);
+    }
+  });
 
 
   socket.on("disconnect", () => {
