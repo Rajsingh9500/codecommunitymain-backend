@@ -55,13 +55,14 @@ app.use(
   })
 );
 
-// CORS: allow localhost and any .vercel.app origin
+// CORS: allow localhost, any .vercel.app origin, and the configured CLIENT_URL
 app.use(
   cors({
     origin(origin, callback) {
       // allow non-browser requests (no origin)
       if (!origin) return callback(null, true);
-      if (isVercelOrigin(origin)) return callback(null, true);
+      const isAllowedClient = CLIENT_URL && (origin === CLIENT_URL || origin === CLIENT_URL.replace(/\/$/, ""));
+      if (isVercelOrigin(origin) || isAllowedClient) return callback(null, true);
       if (allowedLocalOrigins.includes(origin)) return callback(null, true);
 
       console.warn("❌ BLOCKED ORIGIN:", origin);
@@ -186,7 +187,8 @@ const io = new SocketIOServer(server, {
   cors: {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (isVercelOrigin(origin)) return callback(null, true);
+      const isAllowedClient = CLIENT_URL && (origin === CLIENT_URL || origin === CLIENT_URL.replace(/\/$/, ""));
+      if (isVercelOrigin(origin) || isAllowedClient) return callback(null, true);
       if (allowedLocalOrigins.includes(origin)) return callback(null, true);
       console.warn("❌ SOCKET BLOCKED ORIGIN:", origin);
       return callback(new Error("Socket CORS Not Allowed"));
